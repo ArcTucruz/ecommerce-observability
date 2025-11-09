@@ -1,0 +1,7 @@
+txtflask
+flask-sqlalchemy
+flask-cors
+python-dotenv
+pymysql
+cryptography
+werkzeug
