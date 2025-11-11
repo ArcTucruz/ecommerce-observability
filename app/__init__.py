@@ -2,10 +2,13 @@ import os
 import logging
 import logging.config
 import sys
+import uuid
 from flask import Flask
+from flask import g, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from dotenv import load_dotenv
+from pythonjsonlogger import jsonlogger
 
 # Load environment variables
 load_dotenv()
@@ -47,7 +50,40 @@ logging.getLogger('app.services.order_service').setLevel(logging.DEBUG)
 # Reduce Flask noise
 logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
+# Human-readable formatter (with emojis)
+human_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+# JSON formatter (for Grafana/Loki)
+json_formatter = jsonlogger.JsonFormatter(
+    '%(asctime)s %(levelname)s %(name)s %(message)s',
+    rename_fields={'asctime': 'timestamp', 'levelname': 'level', 'name': 'logger'}
+)
+
+# File handler for human-readable logs
+human_file_handler = logging.FileHandler('app.log')
+human_file_handler.setFormatter(human_formatter)
+human_file_handler.setLevel(logging.INFO)
+
+# File handler for JSON logs
+json_file_handler = logging.FileHandler('app_json.log')
+json_file_handler.setFormatter(json_formatter)
+json_file_handler.setLevel(logging.INFO)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(human_formatter)
+console_handler.setLevel(logging.INFO)
+
+# Configure root logger
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[human_file_handler, json_file_handler, console_handler],
+    force=True  # ← ADD THIS!
+)
+
+# Get logger for this module
 logger = logging.getLogger(__name__)
+logger.info("✅ Logging system initialized with JSON support")
 
 def get_database_uri():
     """
@@ -116,6 +152,29 @@ def create_app():
     
     logger.info("API routes registered successfully")
     
+    # Request tracking for distributed tracing
+    @app.before_request
+    def before_request():
+        g.request_id = str(uuid.uuid4())[:8] #Generate unique request id
+
+    # Inject request ID into all logs
+    old_factory = logging.getLogRecordFactory()
+
+    def record_factory(*args, **kwargs):
+        record = old_factory(*args, **kwargs)
+        try:
+            #Try to get request_id from Flask context
+            if hasattr(g, 'request_id'):
+                record.taskName = g.request_id
+            else:
+                record.taskName = None
+        except RuntimeError:
+            # Outside request context (e.g., during startup)
+            record.taskName = None
+        return record
+        
+    logging.setLogRecordFactory(record_factory)
+
     # Serve frontend
     @app.route('/')
     def index():
