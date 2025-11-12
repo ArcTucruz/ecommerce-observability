@@ -28,7 +28,13 @@ app.log
 Thumbs.db
 
 # Environment variables (if sensitive)
-# .env
+.env
+*.env
+.env.local
+.env.production
+app.log
+app_json.log
+*.db
 
 # Temporary files
 *.tmp
